@@ -1,0 +1,9 @@
+*.json
+*.jpg
+*.png
+*.out
+compile_commands.json
+notes.txt
+.cache/
+images/
+out_images/
