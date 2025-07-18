@@ -4,12 +4,14 @@
 #include <algorithm>
 #include <bitset>
 #include <climits>
+#include <cstdint>
 #include <random>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <opencv2/opencv.hpp>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #define TODO (exit(1))
@@ -26,6 +28,18 @@ struct Pixel {
 using Image = cv::Mat;
 using Pixel_Vec = std::vector<Pixel>;
 using Score_Vec = std::vector<int>;
+
+#define N 256
+using Feature = std::bitset<N>;
+using Features = std::vector<Feature>;
+
+struct Match {
+    size_t idx_1;
+    size_t idx_2;
+
+    size_t distance;
+};
+
 
 void debug_display_image(std::string filename, const Image& img, const Pixel_Vec& keypoints) {
 
@@ -230,8 +244,6 @@ inline int clamp_coordinate(int a, const int hi) {
     return std::clamp(a, 0, hi);
 }
 
-#define N 256
-
 std::vector<Pixel> gen_brief_points(const Image& image) {
     const int S = 31;
     const int number_of_pairs = 2 * N;
@@ -280,7 +292,7 @@ inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
     return intensity_a < intensity_b;
 }
 
-std::vector<std::bitset<N>> brief_features(const Image& img, const Pixel_Vec& keypoints) {
+std::vector<Feature> brief_features(const Image& img, const Pixel_Vec& keypoints) {
 
     //pairs of offsets
     const auto& brief_point_pairs = gen_brief_points(img);
@@ -288,7 +300,7 @@ std::vector<std::bitset<N>> brief_features(const Image& img, const Pixel_Vec& ke
     const int x_max = img.cols - 1;
     const int y_max = img.rows - 1;
 
-    std::vector<std::bitset<N>> features;
+    std::vector<Feature> features;
     features.reserve(keypoints.size());
 
     for (const auto& kp : keypoints) {
@@ -319,6 +331,66 @@ std::vector<std::bitset<N>> brief_features(const Image& img, const Pixel_Vec& ke
     return features;
 }
 
+inline size_t h_distance(const Feature& a, const Feature& b) {
+    return (a ^ b).count();
+}
+
+//returns index + distance
+inline std::pair<size_t, size_t> best_match(const Feature& feat, const Features& haystack) {
+
+    size_t best_match = SIZE_MAX;
+    size_t best_match_idx = N;
+
+    const size_t set_size = haystack.size();
+
+    for (size_t j = 0; j < set_size; ++j) {
+
+        const auto& f_2 = haystack[j];
+
+        size_t distance = h_distance(feat, f_2);
+        if (distance < best_match) {
+            best_match = distance;
+            best_match_idx = j;
+        }
+    }
+
+    return std::make_pair(best_match_idx, best_match);
+}
+
+
+std::vector<Match> brute_force_match(const Features& set_1, const Features& set_2) {
+
+    std::vector<Match> matches;
+    matches.reserve(set_1.size());
+
+    const size_t s1_size = set_1.size();
+    const size_t s2_size = set_2.size();
+
+    //NOTE surjective
+
+    for (size_t i = 0; i < s1_size; ++i) {
+
+        const auto& f_1 = set_1[i];
+
+        auto [ idx_set_2, distance ] = best_match(f_1, set_2);
+
+        //cross check here
+        const auto& f_2 = set_2[idx_set_2];
+
+        auto [ idx_set_1, _ ] = best_match(f_2, set_1);
+
+        //matched in both ways
+        if (idx_set_1 == i) {
+            Match m = Match { .idx_1 = i, .idx_2 = idx_set_2, .distance = distance};
+            matches.push_back(m);
+        }
+
+    }
+
+    return matches;
+
+}
+
 int main() {
 
     // std::string image_path = "squares.png";
@@ -342,7 +414,9 @@ int main() {
 
     debug_display_image("keypoints.jpg", gray_image, keypoints);
 
-    brief_features(gray_image, keypoints);
+    const Features features = brief_features(gray_image, keypoints);
+
+    assert(features.size() == keypoints.size());
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;
