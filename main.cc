@@ -43,6 +43,8 @@ struct Match {
 
 void debug_display_image(std::string filename, const Image& img, const Pixel_Vec& keypoints) {
 
+    std::string output_prefix = "output_image/keypoints_";
+
     std::vector<cv::KeyPoint> cv_keypoints;
     cv_keypoints.reserve(keypoints.size());
 
@@ -56,7 +58,7 @@ void debug_display_image(std::string filename, const Image& img, const Pixel_Vec
     cv::Mat output_image;
     cv::drawKeypoints(img, cv_keypoints, output_image);
 
-    cv::imwrite(filename, output_image);
+    cv::imwrite(output_prefix + filename, output_image);
     std::cout << "detected " << keypoints.size() << " keypoints" << std::endl;
 }
 
@@ -294,11 +296,17 @@ inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
 
 std::vector<Feature> brief_features(const Image& img, const Pixel_Vec& keypoints) {
 
-    //pairs of offsets
-    const auto& brief_point_pairs = gen_brief_points(img);
+    Image blurred_img;
+    cv::GaussianBlur(img, blurred_img, cv::Size(3, 3), 0);
 
-    const int x_max = img.cols - 1;
-    const int y_max = img.rows - 1;
+    //pairs of offsets
+    const auto& brief_point_pairs = gen_brief_points(blurred_img);
+
+    const int x_max = blurred_img.cols - 1;
+    const int y_max = blurred_img.rows - 1;
+
+    assert(blurred_img.cols == img.cols);
+    assert(blurred_img.rows == img.rows);
 
     std::vector<Feature> features;
     features.reserve(keypoints.size());
@@ -318,7 +326,7 @@ std::vector<Feature> brief_features(const Image& img, const Pixel_Vec& keypoints
             const auto py = add_and_clamp(kp, offset_2, x_max, y_max);
             // const auto py = kp + offset_2;
 
-            if (lower_intensity(px, py, img)) {
+            if (lower_intensity(px, py, blurred_img)) {
                 v[bit] = 1;
             }
 
@@ -394,13 +402,14 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
 int main() {
 
     // std::string image_path = "squares.png";
-    std::string image_path = "11.jpg";
+    std::string image_dir = "input_image/library/";
+    std::string filename = "2.jpg";
 
-    cv::Mat image = cv::imread(image_path, cv::IMREAD_COLOR);
+    cv::Mat image = cv::imread(image_dir + filename, cv::IMREAD_COLOR);
 
     if (image.empty()) {
-        std::cerr << "Error: Could not open or find the image at " << image_path
-            << std::endl;
+        std::cerr << "Error: Could not open or find the image at " << image_dir + filename
+                  << std::endl;
         return -1;
     }
 
@@ -408,15 +417,13 @@ int main() {
     cv::cvtColor(image, gray_image, cv::COLOR_BGR2GRAY);
 
     auto keypoints_with_score = fast_kp(gray_image);
-    auto filtered_keypoints = nms(keypoints_with_score);
+    const auto filtered_keypoints = nms(keypoints_with_score);
 
-    const auto& keypoints = std::get<Pixel_Vec>(keypoints_with_score);
+    debug_display_image(filename, gray_image, filtered_keypoints);
 
-    debug_display_image("keypoints.jpg", gray_image, keypoints);
+    const Features features = brief_features(gray_image, filtered_keypoints);
 
-    const Features features = brief_features(gray_image, keypoints);
-
-    assert(features.size() == keypoints.size());
+    assert(features.size() == filtered_keypoints.size());
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;

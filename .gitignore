@@ -5,5 +5,5 @@
 compile_commands.json
 notes.txt
 .cache/
-images/
+input_image/
 out_images/
