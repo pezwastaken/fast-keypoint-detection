@@ -9,22 +9,12 @@
 #include <iostream>
 #include <string>
 #include <opencv2/opencv.hpp>
+#include <tuple>
 #include <vector>
 
 #define TODO (exit(1))
 
 #define PURE [[gnu::pure]]
-
-using Image = cv::Mat;
-
-void debug_display_image(std::string filename, const cv::Mat& img, const std::vector<cv::KeyPoint>& keypoints) {
-    cv::Mat output_image;
-    cv::drawKeypoints(img, keypoints, output_image);
-
-    cv::imwrite("keypoints.jpg", output_image);
-
-    std::cout << "detected " << keypoints.size() << " keypoints (not filtered)" << std::endl;
-}
 
 struct Pixel {
     int x;
@@ -33,7 +23,30 @@ struct Pixel {
     explicit Pixel (int x_, int y_) : x(x_), y(y_) {}
 };
 
-inline void load_circle(std::array<uchar, 16>& b, const cv::Mat& img, int i, int j) {
+using Image = cv::Mat;
+using Pixel_Vec = std::vector<Pixel>;
+using Score_Vec = std::vector<int>;
+
+void debug_display_image(std::string filename, const Image& img, const Pixel_Vec& keypoints) {
+
+    std::vector<cv::KeyPoint> cv_keypoints;
+    cv_keypoints.reserve(keypoints.size());
+
+                // cv::KeyPoint kp(cv::Point2f(j, i), 1.0f);  // size = 1.0f
+
+    for (const auto& k : keypoints) {
+        cv::KeyPoint cv_kp(cv::Point2f(k.x, k.y), 1.0f);
+        cv_keypoints.push_back(cv_kp);
+    }
+
+    cv::Mat output_image;
+    cv::drawKeypoints(img, cv_keypoints, output_image);
+
+    cv::imwrite(filename, output_image);
+    std::cout << "detected " << keypoints.size() << " keypoints" << std::endl;
+}
+
+inline void load_circle(std::array<uchar, 16>& b, const Image& img, int i, int j) {
 
     b[1] = img.at<uchar>(i - 3, j + 1);
     b[2] = img.at<uchar>(i - 2, j + 2);
@@ -59,7 +72,7 @@ inline void load_circle(std::array<uchar, 16>& b, const cv::Mat& img, int i, int
     b[15] = img.at<uchar>(i - 3, j - 1);
 }
 
-std::vector<Pixel> fast_kp(const cv::Mat& img) {
+std::tuple<Pixel_Vec, Score_Vec> fast_kp(const Image& img) {
 
     const int n_rows = img.rows - 3;
     const int n_cols = img.cols - 3;
@@ -67,8 +80,12 @@ std::vector<Pixel> fast_kp(const cv::Mat& img) {
     const int THRESHOLD = 40;
 
     std::array<uchar, 16> circle {{ }};
-    std::vector<Pixel> keypoints;
-    keypoints.reserve(100);
+    // std::vector<std::tuple <Pixel, int> > keypoints;
+
+    Pixel_Vec keypoints;
+    Score_Vec scores;
+
+    keypoints.reserve(1000);
 
     for (int i = 3; i < n_rows; ++i) {
         for (int j = 3; j < n_cols; ++j) {
@@ -157,19 +174,56 @@ std::vector<Pixel> fast_kp(const cv::Mat& img) {
             }
 
             if (found) {
-                Pixel px = Pixel { j, i };
+                Pixel px = Pixel { j, i};
                 // cv::KeyPoint kp(cv::Point2f(j, i), 1.0f);  // size = 1.0f
                 keypoints.push_back(px);
+                scores.push_back(pixel_score);
             }
 
         }
     }
 
-    return keypoints;
+    return std::make_tuple(keypoints, scores);
 }
 
 inline bool in_bounds(const Pixel& c, const Pixel& other) {
     return abs(c.x - other.x) <= 2 && abs(c.y - other.y) <= 2;
+}
+
+std::vector<Pixel> nms(const std::tuple<Pixel_Vec, Score_Vec>& keypoints_with_score) {
+
+    const auto& keypoints = std::get<Pixel_Vec>(keypoints_with_score);
+    const auto& scores = std::get<Score_Vec>(keypoints_with_score);
+
+    assert(keypoints.size() == scores.size());
+
+    const auto n_keypoints = keypoints.size();
+
+    Pixel_Vec res;
+    res.reserve(keypoints.size() / 2);
+
+    for (int i = 0; i < n_keypoints; ++i) {
+
+        const auto& kp = keypoints[i];
+        const auto& score = scores[i];
+
+        bool highest_score = true;
+
+        for (int j = 0; j < n_keypoints; ++j) {
+
+            const auto& other_kp = keypoints[j];
+            const auto& other_score = scores[j];
+
+            if (in_bounds(kp, other_kp)) {
+                highest_score = highest_score && score >= other_score ;
+            }
+        }
+
+        if (highest_score) res.push_back(kp);
+
+    }
+
+    return res;
 }
 
 inline int clamp_coordinate(int a, const int hi) {
@@ -178,7 +232,7 @@ inline int clamp_coordinate(int a, const int hi) {
 
 #define N 256
 
-std::vector<Pixel> gen_brief_points(const cv::Mat& image) {
+std::vector<Pixel> gen_brief_points(const Image& image) {
     const int S = 31;
     const int number_of_pairs = 2 * N;
 
@@ -226,7 +280,7 @@ inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
     return intensity_a < intensity_b;
 }
 
-std::vector<std::bitset<N>> brief_features(const Image& img, const std::vector<Pixel> keypoints) {
+std::vector<std::bitset<N>> brief_features(const Image& img, const Pixel_Vec& keypoints) {
 
     //pairs of offsets
     const auto& brief_point_pairs = gen_brief_points(img);
@@ -281,16 +335,18 @@ int main() {
     cv::Mat gray_image;
     cv::cvtColor(image, gray_image, cv::COLOR_BGR2GRAY);
 
-    auto keypoints = fast_kp(gray_image);
-    // auto filtered_keypoints = nms(keypoints);
+    auto keypoints_with_score = fast_kp(gray_image);
+    auto filtered_keypoints = nms(keypoints_with_score);
 
-    // debug_display_image("keypoints.jpg", gray_image, keypoints);
+    const auto& keypoints = std::get<Pixel_Vec>(keypoints_with_score);
+
+    debug_display_image("keypoints.jpg", gray_image, keypoints);
 
     brief_features(gray_image, keypoints);
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;
-    // cv::FAST(gray_image, opencv_fast_keypoints, 40);  // threshold = 20
+    // cv::FAST(gray_image, opencv_fast_keypoints, 40);
     //
     // cv::Mat fast_output;
     // cv::drawKeypoints(image, opencv_fast_keypoints, fast_output, cv::Scalar(0, 0, 255));
@@ -307,29 +363,5 @@ int main() {
 
     return 0;
 }
-
-
-// std::vector<Pixel> nms(const std::vector<Pixel> keypoints) {
-//
-//     std::vector<Pixel> res;
-//     res.reserve(keypoints.size() / 2);
-//
-//     for (const auto& px: keypoints) {
-//
-//         bool highest_score = true;
-//
-//         for (const auto& other: keypoints) {
-//
-//             if (in_bounds(px, other)) {
-//                 highest_score = highest_score && px.score >= other.score ;
-//             }
-//         }
-//
-//         if (highest_score) res.push_back(px);
-//
-//     }
-//
-//     return res;
-// }
 
 
