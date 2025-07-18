@@ -43,18 +43,8 @@ struct Match {
     size_t distance;
 };
 
-void dump_keypoints(auto top_keypoints, auto file_path, const auto& gray_image) {
 
-    int n = std::min(top_keypoints.size(), size_t(15));
-
-    for (auto px: top_keypoints.subspan(0, n)) {
-        std::cout << "intensity: " << px.score << std::endl;
-    }
-
-    debug_display_image(file_path, gray_image, top_keypoints);
-}
-
-void debug_display_image(std::string filename, const Image& img, std::span<Pixel> keypoints) {
+void debug_display_image(std::string filename, const Image& img, std::span<const Pixel> keypoints) {
 
     std::string output_prefix = "output_image/keypoints_";
 
@@ -73,6 +63,17 @@ void debug_display_image(std::string filename, const Image& img, std::span<Pixel
 
     cv::imwrite(output_prefix + filename, output_image);
     std::cout << "detected " << keypoints.size() << " keypoints" << std::endl;
+}
+
+void dump_keypoints(auto top_keypoints, auto file_path, const auto& gray_image) {
+
+    int n = std::min(top_keypoints.size(), size_t(15));
+
+    for (auto px: top_keypoints.subspan(0, n)) {
+        std::cout << "intensity: " << px.score << std::endl;
+    }
+
+    debug_display_image(file_path, gray_image, top_keypoints);
 }
 
 inline void load_circle(std::array<uchar, 16>& b, const Image& img, int i, int j) {
@@ -297,7 +298,7 @@ inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
     return intensity_a < intensity_b;
 }
 
-std::vector<Feature> brief_features(const Image& img, std::span<Pixel> keypoints) {
+std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> keypoints) {
 
     Image blurred_img;
     cv::GaussianBlur(img, blurred_img, cv::Size(3, 3), 0);
@@ -377,8 +378,6 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
     const size_t s1_size = set_1.size();
     const size_t s2_size = set_2.size();
 
-    //NOTE surjective
-
     for (size_t i = 0; i < s1_size; ++i) {
 
         const auto& f_1 = set_1[i];
@@ -398,13 +397,14 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
 
     }
 
+    std::sort(matches.begin(), matches.end(),
+              [](const auto& match1, const auto& match2) { return match1.distance < match2.distance; });
+
     return matches;
 
 }
 
-Features extract_features_from_image(const Image& img, std::string debug_output_path) {
-
-    constexpr size_t n_keypoints = 1500;
+Pixel_Vec extract_keypoints(const Image& img) {
 
     auto keypoints_with_score = fast_kp(img);
     auto filtered_keypoints = nms(keypoints_with_score);
@@ -413,32 +413,42 @@ Features extract_features_from_image(const Image& img, std::string debug_output_
               filtered_keypoints.end(),
               [](const auto& px1, const auto& px2) { return px1.score > px2.score; });
 
+    return filtered_keypoints;
 
+}
 
-    const size_t N_TOP_KEYPOINTS = std::min(n_keypoints, filtered_keypoints.size());
+#define N_KEYPOINTS (size_t(1500))
+
+std::span<const Pixel> span_top_keypoints(const std::vector<Pixel>& keypoints) {
+    const size_t N_TOP_KEYPOINTS = std::min(N_KEYPOINTS, keypoints.size());
     std::cout << "N_TOP_KEYPOINTS: " << N_TOP_KEYPOINTS << std::endl;
 
-    std::span<Pixel> top_keypoints(filtered_keypoints);
+    std::span<const Pixel> top_keypoints(keypoints);
     top_keypoints = top_keypoints.subspan(0, N_TOP_KEYPOINTS);
 
+    return top_keypoints;
+}
+
+Features extract_features_from_keypoints(const Image& img, std::span<const Pixel> keypoints, std::string debug_output_path="") {
+
 #ifndef NDEBUG
-    dump_keypoints(top_keypoints, debug_output_path, img);
+    dump_keypoints(keypoints, debug_output_path, img);
 #endif
 
-    Features features = brief_features(img, top_keypoints);
+    Features features = brief_features(img, keypoints);
 
-    assert(features.size() == N_TOP_KEYPOINTS);
+    assert(features.size() == keypoints.size());
 
     return features;
 }
 
 void display_matches(const Image& i1, const Image& i2, const auto& matches,
-                     std::span<Pixel> kps1, std::span<Pixel> kps2) {
+                     std::span<const Pixel> kps1, std::span<const Pixel> kps2) {
 
     Image output;
     cv::hconcat(i1, i2, output);
 
-    for (int i = 0; i < 10; ++i ) {
+    for (int i = 0; i < 10; ++i) {
 
         const Match& match = matches[i];
 
@@ -478,24 +488,35 @@ Image read_image(std::string filepath) {
 
 }
 
+void match_images(auto filename_1, auto filename_2) {
+
+    std::string image_dir = "input_image/library/";
+
+    auto img_1 = read_image(image_dir + filename_1);
+    const auto kp_1 = extract_keypoints(img_1);
+    auto top_kp_1 = span_top_keypoints(kp_1);
+    const auto features_1 = extract_features_from_keypoints(img_1, top_kp_1, image_dir + filename_1);
+
+    auto img_2 = read_image(image_dir + filename_2);
+    const auto kp_2 = extract_keypoints(img_2);
+    const auto top_kp_2 = span_top_keypoints(kp_2);
+    const auto features_2 = extract_features_from_keypoints(img_2, top_kp_2, image_dir + filename_2);
+
+    const auto matches = brute_force_match(features_1, features_2);
+
+
+
+    display_matches(img_1, img_2, matches, top_kp_1, top_kp_2);
+
+}
+
 int main() {
 
     // std::string image_dir = "./";
     // std::string filename = "squares.png";
 
-    std::string image_dir = "input_image/library/";
-    std::string filename = "1.jpg";
+    match_images("1.jpg", "2.jpg");
 
-    auto img_1 = read_image(image_dir + filename);
-    const auto features_1 = extract_features_from_image(img_1, image_dir + filename);
-
-    filename = "2.jpg";
-    auto img_2 = read_image(image_dir + filename);
-    const auto features_2 = extract_features_from_image(img_2, image_dir + filename);
-
-    const auto matches = brute_force_match(features_1, features_2);
-
-    display_matches(img_1, img_2, matches);
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;
