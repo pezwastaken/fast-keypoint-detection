@@ -257,7 +257,7 @@ std::vector<Pixel> gen_brief_points(const Image& image) {
     const int im_width = image.cols;
     const int im_height = image.rows;
 
-    std::default_random_engine generator(std::random_device{}());
+    std::default_random_engine generator(42);
 
     const double std_dev = static_cast<double>(S) / 5.0;
     std::normal_distribution<double> distribution(0.0, std_dev);
@@ -383,11 +383,13 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
         const auto& f_1 = set_1[i];
 
         auto [ idx_set_2, distance ] = best_match(f_1, set_2);
+        // std::cout << "matched " << i << " with " << idx_set_2 << std::endl;
 
         //cross check here
         const auto& f_2 = set_2[idx_set_2];
 
         auto [ idx_set_1, _ ] = best_match(f_2, set_1);
+        // std::cout << "\t crosscheck: matched " << idx_set_2 << " with " << idx_set_1 << std::endl;
 
         //matched in both ways
         if (idx_set_1 == i) {
@@ -502,9 +504,10 @@ void match_images(auto filename_1, auto filename_2) {
     const auto top_kp_2 = span_top_keypoints(kp_2);
     const auto features_2 = extract_features_from_keypoints(img_2, top_kp_2, image_dir + filename_2);
 
+    std::cout << " distance between 0th elements: " << h_distance(features_1[0], features_2[0]) << std::endl;
+    std::cout << " distance between 1th elements: " << h_distance(features_1[1], features_2[1]) << std::endl;
+
     const auto matches = brute_force_match(features_1, features_2);
-
-
 
     display_matches(img_1, img_2, matches, top_kp_1, top_kp_2);
 
