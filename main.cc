@@ -10,7 +10,7 @@
 #include <iostream>
 #include <string>
 #include <opencv2/opencv.hpp>
-#include <tuple>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -22,12 +22,15 @@ struct Pixel {
     int x;
     int y;
 
-    explicit Pixel (int x_, int y_) : x(x_), y(y_) {}
+    int score;
+
+    explicit Pixel (int x_, int y_, int score_) : x(x_), y(y_), score(score_) {}
 };
 
 using Image = cv::Mat;
 using Pixel_Vec = std::vector<Pixel>;
-using Score_Vec = std::vector<int>;
+
+using Pixel_Set = std::set<Pixel>;
 
 #define N 256
 using Feature = std::bitset<N>;
@@ -40,8 +43,18 @@ struct Match {
     size_t distance;
 };
 
+void dump_keypoints(auto top_keypoints, auto file_path, const auto& gray_image) {
 
-void debug_display_image(std::string filename, const Image& img, const Pixel_Vec& keypoints) {
+    int n = std::min(top_keypoints.size(), size_t(15));
+
+    for (auto px: top_keypoints.subspan(0, n)) {
+        std::cout << "intensity: " << px.score << std::endl;
+    }
+
+    debug_display_image(file_path, gray_image, top_keypoints);
+}
+
+void debug_display_image(std::string filename, const Image& img, std::span<Pixel> keypoints) {
 
     std::string output_prefix = "output_image/keypoints_";
 
@@ -88,7 +101,7 @@ inline void load_circle(std::array<uchar, 16>& b, const Image& img, int i, int j
     b[15] = img.at<uchar>(i - 3, j - 1);
 }
 
-std::tuple<Pixel_Vec, Score_Vec> fast_kp(const Image& img) {
+Pixel_Vec fast_kp(const Image& img) {
 
     const int n_rows = img.rows - 3;
     const int n_cols = img.cols - 3;
@@ -96,10 +109,8 @@ std::tuple<Pixel_Vec, Score_Vec> fast_kp(const Image& img) {
     const int THRESHOLD = 40;
 
     std::array<uchar, 16> circle {{ }};
-    // std::vector<std::tuple <Pixel, int> > keypoints;
 
     Pixel_Vec keypoints;
-    Score_Vec scores;
 
     keypoints.reserve(1000);
 
@@ -190,28 +201,22 @@ std::tuple<Pixel_Vec, Score_Vec> fast_kp(const Image& img) {
             }
 
             if (found) {
-                Pixel px = Pixel { j, i};
-                // cv::KeyPoint kp(cv::Point2f(j, i), 1.0f);  // size = 1.0f
+                Pixel px = Pixel { j, i, pixel_score};
                 keypoints.push_back(px);
-                scores.push_back(pixel_score);
             }
 
         }
     }
 
-    return std::make_tuple(keypoints, scores);
+    return keypoints;
+    // return std::make_tuple(keypoints, scores);
 }
 
 inline bool in_bounds(const Pixel& c, const Pixel& other) {
     return abs(c.x - other.x) <= 2 && abs(c.y - other.y) <= 2;
 }
 
-std::vector<Pixel> nms(const std::tuple<Pixel_Vec, Score_Vec>& keypoints_with_score) {
-
-    const auto& keypoints = std::get<Pixel_Vec>(keypoints_with_score);
-    const auto& scores = std::get<Score_Vec>(keypoints_with_score);
-
-    assert(keypoints.size() == scores.size());
+std::vector<Pixel> nms(const Pixel_Vec& keypoints) {
 
     const auto n_keypoints = keypoints.size();
 
@@ -221,17 +226,15 @@ std::vector<Pixel> nms(const std::tuple<Pixel_Vec, Score_Vec>& keypoints_with_sc
     for (int i = 0; i < n_keypoints; ++i) {
 
         const auto& kp = keypoints[i];
-        const auto& score = scores[i];
 
         bool highest_score = true;
 
         for (int j = 0; j < n_keypoints; ++j) {
 
             const auto& other_kp = keypoints[j];
-            const auto& other_score = scores[j];
 
             if (in_bounds(kp, other_kp)) {
-                highest_score = highest_score && score >= other_score ;
+                highest_score = highest_score && kp.score >= other_kp.score ;
             }
         }
 
@@ -273,7 +276,7 @@ std::vector<Pixel> gen_brief_points(const Image& image) {
         px = std::clamp(px, -15, 15);
         py = std::clamp(py, -15, 15);
 
-        points.emplace_back(px, py);
+        points.emplace_back(px, py, 0);
     }
 
     assert(points.size() == number_of_pairs);
@@ -283,7 +286,7 @@ std::vector<Pixel> gen_brief_points(const Image& image) {
 inline Pixel add_and_clamp(Pixel current, Pixel other, int hi_x, int hi_y) {
     int x = std::clamp(current.x + other.x, 0, hi_x);
     int y = std::clamp(current.y + other.y, 0, hi_y);
-    return Pixel(x, y);
+    return Pixel(x, y, current.score);
 }
 
 inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
@@ -294,7 +297,7 @@ inline bool lower_intensity(Pixel a, Pixel b, const Image& img) {
     return intensity_a < intensity_b;
 }
 
-std::vector<Feature> brief_features(const Image& img, const Pixel_Vec& keypoints) {
+std::vector<Feature> brief_features(const Image& img, std::span<Pixel> keypoints) {
 
     Image blurred_img;
     cv::GaussianBlur(img, blurred_img, cv::Size(3, 3), 0);
@@ -399,31 +402,100 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
 
 }
 
-int main() {
+Features extract_features_from_image(const Image& img, std::string debug_output_path) {
 
-    // std::string image_path = "squares.png";
-    std::string image_dir = "input_image/library/";
-    std::string filename = "2.jpg";
+    constexpr size_t n_keypoints = 1500;
 
-    cv::Mat image = cv::imread(image_dir + filename, cv::IMREAD_COLOR);
+    auto keypoints_with_score = fast_kp(img);
+    auto filtered_keypoints = nms(keypoints_with_score);
 
-    if (image.empty()) {
-        std::cerr << "Error: Could not open or find the image at " << image_dir + filename
-                  << std::endl;
-        return -1;
+    std::sort(filtered_keypoints.begin(),
+              filtered_keypoints.end(),
+              [](const auto& px1, const auto& px2) { return px1.score > px2.score; });
+
+
+
+    const size_t N_TOP_KEYPOINTS = std::min(n_keypoints, filtered_keypoints.size());
+    std::cout << "N_TOP_KEYPOINTS: " << N_TOP_KEYPOINTS << std::endl;
+
+    std::span<Pixel> top_keypoints(filtered_keypoints);
+    top_keypoints = top_keypoints.subspan(0, N_TOP_KEYPOINTS);
+
+#ifndef NDEBUG
+    dump_keypoints(top_keypoints, debug_output_path, img);
+#endif
+
+    Features features = brief_features(img, top_keypoints);
+
+    assert(features.size() == N_TOP_KEYPOINTS);
+
+    return features;
+}
+
+void display_matches(const Image& i1, const Image& i2, const auto& matches,
+                     std::span<Pixel> kps1, std::span<Pixel> kps2) {
+
+    Image output;
+    cv::hconcat(i1, i2, output);
+
+    for (int i = 0; i < 10; ++i ) {
+
+        const Match& match = matches[i];
+
+        const auto& kp1 = kps1[match.idx_1];
+        const auto& kp2 = kps2[match.idx_2];
+
+        cv::Point2f pt1 (kp1.x, kp1.y);
+        cv::Point2f pt2 (kp2.x, kp2.y);
+        pt2.x += i1.cols; // Offset for second image
+
+        // Draw line
+        cv::line(output, pt1, pt2, cv::Scalar(0, 255, 0), 1);
+
+        // Draw circles
+        cv::circle(output, pt1, 3, cv::Scalar(0, 0, 255), -1);
+        cv::circle(output, pt2, 3, cv::Scalar(0, 0, 255), -1);
+
     }
 
-    cv::Mat gray_image;
-    cv::cvtColor(image, gray_image, cv::COLOR_BGR2GRAY);
+    cv::imwrite("matches.jpg", output);
 
-    auto keypoints_with_score = fast_kp(gray_image);
-    const auto filtered_keypoints = nms(keypoints_with_score);
+}
 
-    debug_display_image(filename, gray_image, filtered_keypoints);
+Image read_image(std::string filepath) {
 
-    const Features features = brief_features(gray_image, filtered_keypoints);
+    cv::Mat image = cv::imread(filepath, cv::IMREAD_COLOR);
 
-    assert(features.size() == filtered_keypoints.size());
+    if (image.empty()) {
+        std::cerr << "Error: Could not open or find the image at " << filepath
+                  << std::endl;
+        exit(1);
+    }
+
+    Image output;
+    cv::cvtColor(image, output, cv::COLOR_BGR2GRAY);
+    return output;
+
+}
+
+int main() {
+
+    // std::string image_dir = "./";
+    // std::string filename = "squares.png";
+
+    std::string image_dir = "input_image/library/";
+    std::string filename = "1.jpg";
+
+    auto img_1 = read_image(image_dir + filename);
+    const auto features_1 = extract_features_from_image(img_1, image_dir + filename);
+
+    filename = "2.jpg";
+    auto img_2 = read_image(image_dir + filename);
+    const auto features_2 = extract_features_from_image(img_2, image_dir + filename);
+
+    const auto matches = brute_force_match(features_1, features_2);
+
+    display_matches(img_1, img_2, matches);
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;
@@ -432,15 +504,6 @@ int main() {
     // cv::Mat fast_output;
     // cv::drawKeypoints(image, opencv_fast_keypoints, fast_output, cv::Scalar(0, 0, 255));
     // cv::imwrite("opencv_keypoints.jpg", fast_output);
-
-    // for (const auto& k : filtered_keypoints) {
-    //     std::cout << "keypoint at: " << k.x << ", " << k.y << " (" << k.score << ")" << std::endl;
-    // }
-
-    // std::cout << "detected " << filtered_keypoints.size() << " keypoints (filtered)" << std::endl;
-
-
-    // cv::imwrite("blurred_image.jpg", blurred);
 
     return 0;
 }
