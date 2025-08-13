@@ -43,6 +43,12 @@ struct Match {
     usize distance;
 };
 
+struct Vec2 {
+    int x;
+    int y;
+};
+
+
 
 void debug_display_image(std::string filename, const Image& img, std::span<const Pixel> keypoints) {
 
@@ -249,6 +255,49 @@ std::vector<Pixel> nms(const Pixel_Vec& keypoints) {
 inline int clamp_coordinate(int a, const int hi) {
     return std::clamp(a, 0, hi);
 }
+
+Vec2 intensity_centroid(Pixel kp, const Image& img)
+{
+    Vec2 intensity_orientation {0};
+
+    const int R = 15;
+
+    const int img_width = img.cols;
+    const int img_height = img.rows;
+
+    const Vec2 min = {
+        .x = std::clamp(kp.x - R, 0, img_width),
+        .y = std::clamp(kp.y - R, 0, img_height)
+    };
+
+    const Vec2 max = {
+        .x = std::clamp(kp.x + R, 0, img_width),
+        .y = std::clamp(kp.y + R, 0, img_height)
+    };
+
+    for (int i = min.y; i < max.y; ++i)
+    {
+        for (int j = min.x; j < max.x; ++j)
+        {
+
+            const int rows_offset = i - kp.y;
+            const int cols_offset = j - kp.x;
+
+            //within radius
+            if (rows_offset*rows_offset + cols_offset*cols_offset <= R*R)
+            {
+                uchar intensity = img.at<uchar>(i, j);
+
+                intensity_orientation.x += cols_offset * intensity;
+                intensity_orientation.y += rows_offset * intensity;
+            }
+
+        }
+    }
+
+    return intensity_orientation;
+}
+
 
 std::vector<Pixel> gen_brief_points(const Image& image) {
     const int S = 31;
