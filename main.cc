@@ -16,7 +16,7 @@
 
 #define TODO (exit(1))
 
-#define PURE [[gnu::pure]]
+using usize = size_t;
 
 struct Pixel {
     int x;
@@ -37,10 +37,10 @@ using Feature = std::bitset<N>;
 using Features = std::vector<Feature>;
 
 struct Match {
-    size_t idx_1;
-    size_t idx_2;
+    usize idx_1;
+    usize idx_2;
 
-    size_t distance;
+    usize distance;
 };
 
 
@@ -67,7 +67,7 @@ void debug_display_image(std::string filename, const Image& img, std::span<const
 
 void dump_keypoints(auto top_keypoints, auto file_path, const auto& gray_image) {
 
-    int n = std::min(top_keypoints.size(), size_t(15));
+    int n = std::min(top_keypoints.size(), usize(15));
 
     for (auto px: top_keypoints.subspan(0, n)) {
         std::cout << "intensity: " << px.score << std::endl;
@@ -343,23 +343,23 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     return features;
 }
 
-inline size_t h_distance(const Feature& a, const Feature& b) {
+inline usize h_distance(const Feature& a, const Feature& b) {
     return (a ^ b).count();
 }
 
 //returns index + distance
-inline std::pair<size_t, size_t> best_match(const Feature& feat, const Features& haystack) {
+inline std::pair<usize, usize> best_match(const Feature& feat, const Features& haystack) {
 
-    size_t best_match = SIZE_MAX;
-    size_t best_match_idx = N;
+    usize best_match = SIZE_MAX;
+    usize best_match_idx = N;
 
-    const size_t set_size = haystack.size();
+    const usize set_size = haystack.size();
 
-    for (size_t j = 0; j < set_size; ++j) {
+    for (usize j = 0; j < set_size; ++j) {
 
         const auto& f_2 = haystack[j];
 
-        size_t distance = h_distance(feat, f_2);
+        usize distance = h_distance(feat, f_2);
         if (distance < best_match) {
             best_match = distance;
             best_match_idx = j;
@@ -375,10 +375,10 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
     std::vector<Match> matches;
     matches.reserve(set_1.size());
 
-    const size_t s1_size = set_1.size();
-    const size_t s2_size = set_2.size();
+    const usize s1_size = set_1.size();
+    const usize s2_size = set_2.size();
 
-    for (size_t i = 0; i < s1_size; ++i) {
+    for (usize i = 0; i < s1_size; ++i) {
 
         const auto& f_1 = set_1[i];
 
@@ -419,10 +419,10 @@ Pixel_Vec extract_keypoints(const Image& img) {
 
 }
 
-#define N_KEYPOINTS (size_t(1500))
+#define N_KEYPOINTS (usize(1500))
 
 std::span<const Pixel> span_top_keypoints(const std::vector<Pixel>& keypoints) {
-    const size_t N_TOP_KEYPOINTS = std::min(N_KEYPOINTS, keypoints.size());
+    const usize N_TOP_KEYPOINTS = std::min(N_KEYPOINTS, keypoints.size());
     std::cout << "N_TOP_KEYPOINTS: " << N_TOP_KEYPOINTS << std::endl;
 
     std::span<const Pixel> top_keypoints(keypoints);
@@ -484,9 +484,7 @@ Image read_image(std::string filepath) {
         exit(1);
     }
 
-    Image output;
-    cv::cvtColor(image, output, cv::COLOR_BGR2GRAY);
-    return output;
+    return image;
 
 }
 
@@ -495,14 +493,21 @@ void match_images(auto filename_1, auto filename_2) {
     std::string image_dir = "input_image/library/";
 
     auto img_1 = read_image(image_dir + filename_1);
-    const auto kp_1 = extract_keypoints(img_1);
+    Image grayscale_image_1;
+    cv::cvtColor(img_1, grayscale_image_1, cv::COLOR_BGR2GRAY);
+
+    const auto kp_1 = extract_keypoints(grayscale_image_1);
     auto top_kp_1 = span_top_keypoints(kp_1);
-    const auto features_1 = extract_features_from_keypoints(img_1, top_kp_1, image_dir + filename_1);
+    const auto features_1 = extract_features_from_keypoints(grayscale_image_1, top_kp_1, image_dir + filename_1);
+
 
     auto img_2 = read_image(image_dir + filename_2);
-    const auto kp_2 = extract_keypoints(img_2);
+    Image grayscale_image_2;
+    cv::cvtColor(img_2, grayscale_image_2, cv::COLOR_BGR2GRAY);
+
+    const auto kp_2 = extract_keypoints(grayscale_image_2);
     const auto top_kp_2 = span_top_keypoints(kp_2);
-    const auto features_2 = extract_features_from_keypoints(img_2, top_kp_2, image_dir + filename_2);
+    const auto features_2 = extract_features_from_keypoints(grayscale_image_2, top_kp_2, image_dir + filename_2);
 
     std::cout << " distance between 0th elements: " << h_distance(features_1[0], features_2[0]) << std::endl;
     std::cout << " distance between 1th elements: " << h_distance(features_1[1], features_2[1]) << std::endl;
@@ -514,9 +519,6 @@ void match_images(auto filename_1, auto filename_2) {
 }
 
 int main() {
-
-    // std::string image_dir = "./";
-    // std::string filename = "squares.png";
 
     match_images("1.jpg", "2.jpg");
 
