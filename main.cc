@@ -1,6 +1,7 @@
 #include "opencv2/core/base.hpp"
 #include "opencv2/core/hal/interface.h"
 #include "opencv2/core/types.hpp"
+#include <opencv2/features2d.hpp>
 #include <algorithm>
 #include <bitset>
 #include <climits>
@@ -407,7 +408,6 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     const auto brief_points = gen_brief_points(blurred_img);
     const auto orb_map = gen_orb_map(brief_points);
 
-    // const auto& brief_point_pairs = orb_map[20];
     // const auto& brief_point_pairs = brief_points;
 
     const int x_max = blurred_img.cols - 1;
@@ -419,7 +419,12 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     std::vector<Feature> features;
     features.reserve(keypoints.size());
 
+#if 0
+    Image vis_img;
+    cv::cvtColor(img, vis_img, cv::COLOR_GRAY2BGR);  // Convert to color for colored arrows
 
+    int vis_count = 0;  // Counter for visualization
+#endif
 
     for (const auto& kp : keypoints) {
 
@@ -435,7 +440,28 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
         assert(rotated_pattern_bin >= 0);
         const auto& brief_point_pairs = orb_map[rotated_pattern_bin];
 
+#if 0
 
+                // Draw orientation arrow for first 15 keypoints
+        if (vis_count < 15) {
+            const int arrow_length = 20;  // Length of arrow
+            cv::Point2f start(kp.x, kp.y);
+            cv::Point2f end(
+                kp.x + arrow_length * std::cos(intensity_angle),
+                kp.y + arrow_length * std::sin(intensity_angle)
+            );
+
+            // Draw arrow (green for visibility)
+            cv::arrowedLine(vis_img, start, end, cv::Scalar(0, 255, 0), 2, 8, 0, 0.3);
+
+            // Draw keypoint circle (red)
+            cv::circle(vis_img, start, 3, cv::Scalar(0, 0, 255), -1);
+
+            vis_count++;
+        }
+
+
+#endif
 
         std::cout << "Keypoint: (" << kp.x << "," << kp.y << ") "
           << "Centroid: (" << intensity_vec.x << "," << intensity_vec.y << ") "
@@ -553,9 +579,9 @@ std::span<const Pixel> span_top_keypoints(const std::vector<Pixel>& keypoints) {
     return top_keypoints;
 }
 
-Features extract_features_from_keypoints(const Image& img, std::span<const Pixel> keypoints, std::string debug_output_path="") {
+Features extract_features_from_keypoints(const Image& img, std::span<const Pixel> keypoints) {
 
-#ifndef NDEBUG
+#if 0
     dump_keypoints(keypoints, debug_output_path, img);
 #endif
 
@@ -595,8 +621,8 @@ void display_matches(const Image& i1, const Image& i2, const auto& matches,
         cv::line(output, pt1, pt2, random_color, 1);
 
         // Draw circles
-        cv::circle(output, pt1, 3, cv::Scalar(0, 0, 255), -1);
-        cv::circle(output, pt2, 3, cv::Scalar(0, 0, 255), -1);
+        cv::circle(output, pt1, 3, cv::Scalar(0, 0, 255), 1);
+        cv::circle(output, pt2, 3, cv::Scalar(0, 0, 255), 1);
 
     }
 
@@ -620,24 +646,22 @@ Image read_image(std::string filepath) {
 
 void match_images(auto filename_1, auto filename_2) {
 
-    std::string image_dir = "input_image/grail/";
-
-    auto img_1 = read_image(image_dir + filename_1);
+    auto img_1 = read_image(filename_1);
     Image grayscale_image_1;
     cv::cvtColor(img_1, grayscale_image_1, cv::COLOR_BGR2GRAY);
 
     const auto kp_1 = extract_keypoints(grayscale_image_1);
     auto top_kp_1 = span_top_keypoints(kp_1);
-    const auto features_1 = extract_features_from_keypoints(grayscale_image_1, top_kp_1, image_dir + filename_1);
+    const auto features_1 = extract_features_from_keypoints(grayscale_image_1, top_kp_1);
 
 
-    auto img_2 = read_image(image_dir + filename_2);
+    auto img_2 = read_image(filename_2);
     Image grayscale_image_2;
     cv::cvtColor(img_2, grayscale_image_2, cv::COLOR_BGR2GRAY);
 
     const auto kp_2 = extract_keypoints(grayscale_image_2);
     const auto top_kp_2 = span_top_keypoints(kp_2);
-    const auto features_2 = extract_features_from_keypoints(grayscale_image_2, top_kp_2, image_dir + filename_2);
+    const auto features_2 = extract_features_from_keypoints(grayscale_image_2, top_kp_2);
 
     std::cout << " distance between 0th elements: " << h_distance(features_1[0], features_2[0]) << std::endl;
     std::cout << " distance between 1th elements: " << h_distance(features_1[1], features_2[1]) << std::endl;
@@ -648,10 +672,67 @@ void match_images(auto filename_1, auto filename_2) {
 
 }
 
+
+void opencv_orb_matching_with_visualization(const Image& img1, const Image& img2) {
+
+    // Create ORB detector/descriptor
+    cv::Ptr<cv::ORB> orb = cv::ORB::create(500);
+
+    // Detect keypoints and compute descriptors
+    std::vector<cv::KeyPoint> keypoints1, keypoints2;
+    cv::Mat descriptors1, descriptors2;
+
+    orb->detectAndCompute(img1, cv::noArray(), keypoints1, descriptors1);
+    orb->detectAndCompute(img2, cv::noArray(), keypoints2, descriptors2);
+
+    std::cout << "OpenCV ORB keypoints - Image 1: " << keypoints1.size() 
+              << ", Image 2: " << keypoints2.size() << std::endl;
+
+    // Match descriptors
+    cv::BFMatcher matcher(cv::NORM_HAMMING);
+    std::vector<cv::DMatch> matches;
+    matcher.match(descriptors1, descriptors2, matches);
+
+    // Optional: Filter good matches
+    std::vector<cv::DMatch> good_matches;
+    for (const auto& match : matches) {
+        if (match.distance < 50) {  // Adjust threshold as needed
+            good_matches.push_back(match);
+        }
+    }
+
+    std::cout << "OpenCV ORB total matches: " << matches.size() << std::endl;
+    std::cout << "OpenCV ORB good matches: " << good_matches.size() << std::endl;
+
+    // Draw matches - this creates the side-by-side visualization with connecting lines
+    cv::Mat match_img;
+    cv::drawMatches(img1, keypoints1,           // Left image and its keypoints
+                    img2, keypoints2,           // Right image and its keypoints  
+                    good_matches,               // The matches to draw
+                    match_img,                  // Output image
+                    cv::Scalar::all(-1),        // Match line color (random colors)
+                    cv::Scalar::all(-1),        // Keypoint color (random colors)
+                    std::vector<char>(),        // Mask (empty = draw all)
+                    cv::DrawMatchesFlags::DEFAULT); // Flags
+
+    // Save the result
+    cv::imwrite("opencv_orb_matches.jpg", match_img);
+
+}
+
 int main() {
 
-    // match_images("5.jpg", "6.jpg");
-    match_images("grail01.jpg", "grail01_flipped.jpg");
+#if 0
+    auto img_1 = read_image("input_image/random/shelf_1.jpg");
+    auto img_2 = read_image("input_image/random/shelf_2.jpg");
+
+    opencv_orb_matching_with_visualization(img_1, img_2);
+#endif
+
+    std::string dir = "input_image/library/";
+    match_images(dir + "5.jpg", dir + "6.jpg");
+    // match_images("shelf_1.jpg", "shelf_2.jpg");
+    // match_images("grail01.jpg", "grail01_flipped.jpg");
 
 
     //COMPARISON
