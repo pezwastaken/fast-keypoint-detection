@@ -407,7 +407,8 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     const auto brief_points = gen_brief_points(blurred_img);
     const auto orb_map = gen_orb_map(brief_points);
 
-    const auto& brief_point_pairs = orb_map[20];
+    // const auto& brief_point_pairs = orb_map[20];
+    // const auto& brief_point_pairs = brief_points;
 
     const int x_max = blurred_img.cols - 1;
     const int y_max = blurred_img.rows - 1;
@@ -418,24 +419,33 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     std::vector<Feature> features;
     features.reserve(keypoints.size());
 
+
+
     for (const auto& kp : keypoints) {
 
         std::bitset<N> v(0);
         int bit = 0;
 
-        // Vec2 intensity_vec = intensity_centroid(kp, blurred_img);
-        // float intensity_angle = vec_to_angle(intensity_vec);
-        // if (intensity_angle < 0) intensity_angle += 2.0F * M_PI;
-        //
-        // int rotated_pattern_bin = (intensity_angle * 180.0F / M_PI) / 12;
-        // assert(rotated_pattern_bin < 30);
-        // assert(rotated_pattern_bin >= 0);
-        // const auto& brief_point_pairs = orb_map[rotated_pattern_bin];
+        Vec2 intensity_vec = intensity_centroid(kp, blurred_img);
+        float intensity_angle = vec_to_angle(intensity_vec);
+        if (intensity_angle < 0) intensity_angle += 2.0F * M_PI;
+
+        int rotated_pattern_bin = (intensity_angle * 180.0F / M_PI) / 12;
+        assert(rotated_pattern_bin < 30);
+        assert(rotated_pattern_bin >= 0);
+        const auto& brief_point_pairs = orb_map[rotated_pattern_bin];
+
+
+
+        std::cout << "Keypoint: (" << kp.x << "," << kp.y << ") "
+          << "Centroid: (" << intensity_vec.x << "," << intensity_vec.y << ") "
+          << "Angle: " << intensity_angle * 180.0f / M_PI << "° "
+          << "Bin: " << rotated_pattern_bin << std::endl;
 
         for (int i = 0; i < N; ++i) {
 
-            const auto offset_1 = brief_point_pairs[i];
-            const auto offset_2 = brief_point_pairs[++i];
+            const auto offset_1 = brief_point_pairs[2 * i];
+            const auto offset_2 = brief_point_pairs[2 * i + 1];
 
             const auto px = add_and_clamp(kp, offset_1, x_max, y_max);
             // const auto px = kp + offset_1;
@@ -602,7 +612,7 @@ Image read_image(std::string filepath) {
 
 void match_images(auto filename_1, auto filename_2) {
 
-    std::string image_dir = "input_image/library/";
+    std::string image_dir = "input_image/grail/";
 
     auto img_1 = read_image(image_dir + filename_1);
     Image grayscale_image_1;
@@ -632,7 +642,8 @@ void match_images(auto filename_1, auto filename_2) {
 
 int main() {
 
-    match_images("5.jpg", "6.jpg");
+    // match_images("5.jpg", "6.jpg");
+    match_images("grail01.jpg", "grail01_flipped.jpg");
 
 
     //COMPARISON
