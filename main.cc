@@ -572,6 +572,8 @@ void display_matches(const Image& i1, const Image& i2, const auto& matches,
     Image output;
     cv::hconcat(i1, i2, output);
 
+    srand(time(NULL));
+
     for (int i = 0; i < 30; ++i) {
 
         const Match& match = matches[i];
@@ -583,8 +585,14 @@ void display_matches(const Image& i1, const Image& i2, const auto& matches,
         cv::Point2f pt2 (kp2.x, kp2.y);
         pt2.x += i1.cols; // Offset for second image
 
+
+        int b = rand() % 256;
+        int g = rand() % 256;
+        int r = rand() % 256;
+        cv::Scalar random_color(b, g, r);
+
         // Draw line
-        cv::line(output, pt1, pt2, cv::Scalar(0, 255, 0), 1);
+        cv::line(output, pt1, pt2, random_color, 1);
 
         // Draw circles
         cv::circle(output, pt1, 3, cv::Scalar(0, 0, 255), -1);
