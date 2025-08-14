@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <bitset>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <random>
 #include <cstdlib>
@@ -298,6 +299,11 @@ Vec2 intensity_centroid(Pixel kp, const Image& img)
     return intensity_orientation;
 }
 
+[[gnu::pure]]
+float vec_to_angle(Vec2 v)
+{
+    return atan2(v.y, v.x);
+}
 
 std::vector<Pixel> gen_brief_points(const Image& image) {
     const int S = 31;
@@ -333,6 +339,51 @@ std::vector<Pixel> gen_brief_points(const Image& image) {
     return points;
 }
 
+std::vector<Pixel> rotate_points(const std::vector<Pixel>& original_points, float theta)
+{
+    std::vector<Pixel> points;
+    points.reserve(original_points.size());
+
+    const float cos_theta = std::cos(theta);
+    const float sin_theta = std::sin(theta);
+
+    for (auto& point : original_points)
+    {
+        const float rotated_x = std::round(point.x * cos_theta - point.y * sin_theta);
+        const float rotated_y = std::round(point.x * sin_theta + point.y * cos_theta);
+
+        const int px = std::clamp((int)rotated_x, -15, 15);
+        const int py = std::clamp((int)rotated_y, -15, 15);
+
+        Pixel rotated_point(px, py, 0);
+        points.push_back(rotated_point);
+    }
+
+    return points;
+}
+
+// map angles to their corresponding rotated brief pattern
+using OrientedBriefKeypointsMap = std::vector<std::vector<Pixel>>;
+
+OrientedBriefKeypointsMap gen_orb_map(const std::vector<Pixel>& brief_points)
+{
+
+    const int bins = 360 / 12;
+    const float angle_increment_rad = 12.0F * M_PI / 180.0F;
+
+    OrientedBriefKeypointsMap rotated_patterns;
+    rotated_patterns.reserve(bins);
+
+    for (int i = 0; i < bins; ++i)
+    {
+        const float angle = (i + 0.5F) * angle_increment_rad;
+
+        rotated_patterns.push_back(rotate_points(brief_points, angle));
+    }
+
+    return rotated_patterns;
+}
+
 inline Pixel add_and_clamp(Pixel current, Pixel other, int hi_x, int hi_y) {
     int x = std::clamp(current.x + other.x, 0, hi_x);
     int y = std::clamp(current.y + other.y, 0, hi_y);
@@ -353,7 +404,10 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
     cv::GaussianBlur(img, blurred_img, cv::Size(3, 3), 0);
 
     //pairs of offsets
-    const auto& brief_point_pairs = gen_brief_points(blurred_img);
+    const auto brief_points = gen_brief_points(blurred_img);
+    const auto orb_map = gen_orb_map(brief_points);
+
+    const auto& brief_point_pairs = orb_map[20];
 
     const int x_max = blurred_img.cols - 1;
     const int y_max = blurred_img.rows - 1;
@@ -368,6 +422,15 @@ std::vector<Feature> brief_features(const Image& img, std::span<const Pixel> key
 
         std::bitset<N> v(0);
         int bit = 0;
+
+        // Vec2 intensity_vec = intensity_centroid(kp, blurred_img);
+        // float intensity_angle = vec_to_angle(intensity_vec);
+        // if (intensity_angle < 0) intensity_angle += 2.0F * M_PI;
+        //
+        // int rotated_pattern_bin = (intensity_angle * 180.0F / M_PI) / 12;
+        // assert(rotated_pattern_bin < 30);
+        // assert(rotated_pattern_bin >= 0);
+        // const auto& brief_point_pairs = orb_map[rotated_pattern_bin];
 
         for (int i = 0; i < N; ++i) {
 
@@ -499,7 +562,7 @@ void display_matches(const Image& i1, const Image& i2, const auto& matches,
     Image output;
     cv::hconcat(i1, i2, output);
 
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 30; ++i) {
 
         const Match& match = matches[i];
 
@@ -569,7 +632,7 @@ void match_images(auto filename_1, auto filename_2) {
 
 int main() {
 
-    match_images("1.jpg", "2.jpg");
+    match_images("5.jpg", "6.jpg");
 
 
     //COMPARISON
