@@ -1,9 +1,8 @@
 *.json
-*.jpg
+./*.jpg
 *.png
 *.out
 compile_commands.json
 notes.txt
 .cache/
-input_image/
 out_images/
