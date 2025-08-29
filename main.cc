@@ -218,7 +218,6 @@ Pixel_Vec fast_kp(const Image& img) {
     }
 
     return keypoints;
-    // return std::make_tuple(keypoints, scores);
 }
 
 inline bool in_bounds(const Pixel& c, const Pixel& other) {
@@ -326,6 +325,8 @@ std::vector<Pixel> gen_brief_points(const Image& image) {
     for (int i = 0; i < number_of_pairs; ++i) {
         double x = distribution(generator);
         double y = distribution(generator);
+
+        std::cout << "x: " << x << ", y: " << y << std::endl;
 
         int px = std::round(x);
         int py = std::round(y);
@@ -581,8 +582,8 @@ std::span<const Pixel> span_top_keypoints(const std::vector<Pixel>& keypoints) {
 
 Features extract_features_from_keypoints(const Image& img, std::span<const Pixel> keypoints) {
 
-#if 0
-    dump_keypoints(keypoints, debug_output_path, img);
+#if 1
+    dump_keypoints(keypoints, "keypoints.jpg", img);
 #endif
 
     Features features = brief_features(img, keypoints);
@@ -600,7 +601,7 @@ void display_matches(const Image& i1, const Image& i2, const auto& matches,
 
     srand(time(NULL));
 
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 50; ++i) {
 
         const Match& match = matches[i];
 
@@ -654,6 +655,7 @@ void match_images(auto filename_1, auto filename_2) {
     auto top_kp_1 = span_top_keypoints(kp_1);
     const auto features_1 = extract_features_from_keypoints(grayscale_image_1, top_kp_1);
 
+    std::cout << "------" << std::endl;
 
     auto img_2 = read_image(filename_2);
     Image grayscale_image_2;
@@ -675,10 +677,8 @@ void match_images(auto filename_1, auto filename_2) {
 
 void opencv_orb_matching_with_visualization(const Image& img1, const Image& img2) {
 
-    // Create ORB detector/descriptor
     cv::Ptr<cv::ORB> orb = cv::ORB::create(500);
 
-    // Detect keypoints and compute descriptors
     std::vector<cv::KeyPoint> keypoints1, keypoints2;
     cv::Mat descriptors1, descriptors2;
 
@@ -688,15 +688,13 @@ void opencv_orb_matching_with_visualization(const Image& img1, const Image& img2
     std::cout << "OpenCV ORB keypoints - Image 1: " << keypoints1.size() 
               << ", Image 2: " << keypoints2.size() << std::endl;
 
-    // Match descriptors
     cv::BFMatcher matcher(cv::NORM_HAMMING);
     std::vector<cv::DMatch> matches;
     matcher.match(descriptors1, descriptors2, matches);
 
-    // Optional: Filter good matches
     std::vector<cv::DMatch> good_matches;
     for (const auto& match : matches) {
-        if (match.distance < 50) {  // Adjust threshold as needed
+        if (match.distance < 50) {
             good_matches.push_back(match);
         }
     }
@@ -704,18 +702,11 @@ void opencv_orb_matching_with_visualization(const Image& img1, const Image& img2
     std::cout << "OpenCV ORB total matches: " << matches.size() << std::endl;
     std::cout << "OpenCV ORB good matches: " << good_matches.size() << std::endl;
 
-    // Draw matches - this creates the side-by-side visualization with connecting lines
     cv::Mat match_img;
-    cv::drawMatches(img1, keypoints1,           // Left image and its keypoints
-                    img2, keypoints2,           // Right image and its keypoints  
-                    good_matches,               // The matches to draw
-                    match_img,                  // Output image
-                    cv::Scalar::all(-1),        // Match line color (random colors)
-                    cv::Scalar::all(-1),        // Keypoint color (random colors)
-                    std::vector<char>(),        // Mask (empty = draw all)
-                    cv::DrawMatchesFlags::DEFAULT); // Flags
+    cv::drawMatches(img1, keypoints1, img2, keypoints2, good_matches, match_img,
+                    cv::Scalar::all(-1), cv::Scalar::all(-1),
+                    std::vector<char>(), cv::DrawMatchesFlags::DEFAULT);
 
-    // Save the result
     cv::imwrite("opencv_orb_matches.jpg", match_img);
 
 }
@@ -729,11 +720,9 @@ int main() {
     opencv_orb_matching_with_visualization(img_1, img_2);
 #endif
 
-    std::string dir = "input_image/library/";
-    match_images(dir + "5.jpg", dir + "6.jpg");
-    // match_images("shelf_1.jpg", "shelf_2.jpg");
-    // match_images("grail01.jpg", "grail01_flipped.jpg");
-
+    // match_images("input_image/grail/grail01.jpg", "input_image/grail/grail01_flipped.jpg");
+    match_images("input_image/library/12.jpg", "input_image/library/13.jpg");
+    // match_images("input_image/Xue-Mountain-Enterance/DSC_0174.jpg", "input_image/Xue-Mountain-Enterance/DSC_0175.jpg");
 
     //COMPARISON
     // std::vector<cv::KeyPoint> opencv_fast_keypoints;
