@@ -59,8 +59,6 @@ void debug_display_image(std::string filename, const Image& img, std::span<const
     std::vector<cv::KeyPoint> cv_keypoints;
     cv_keypoints.reserve(keypoints.size());
 
-                // cv::KeyPoint kp(cv::Point2f(j, i), 1.0f);  // size = 1.0f
-
     for (const auto& k : keypoints) {
         cv::KeyPoint cv_kp(cv::Point2f(k.x, k.y), 1.0f);
         cv_keypoints.push_back(cv_kp);
@@ -532,13 +530,11 @@ std::vector<Match> brute_force_match(const Features& set_1, const Features& set_
         const auto& f_1 = set_1[i];
 
         auto [ idx_set_2, distance ] = best_match(f_1, set_2);
-        // std::cout << "matched " << i << " with " << idx_set_2 << std::endl;
 
         //cross check here
         const auto& f_2 = set_2[idx_set_2];
 
         auto [ idx_set_1, _ ] = best_match(f_2, set_1);
-        // std::cout << "\t crosscheck: matched " << idx_set_2 << " with " << idx_set_1 << std::endl;
 
         //matched in both ways
         if (idx_set_1 == i) {
